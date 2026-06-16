@@ -1,0 +1,6 @@
+praw
+tgcrypto
+python-dotenv
+pyrogram
+tweepy
+wget
