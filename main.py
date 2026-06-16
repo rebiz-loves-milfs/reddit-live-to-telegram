@@ -29,8 +29,8 @@ def process_twitter_update(bot, chat_id, text, consumer_key, consumer_secret, ac
     """Processes an update containing a Twitter link, fetches media, and posts to Telegram."""
     logger.info("Processing Twitter update...")
     
-    # Extract tweet ID
-    match = re.search(r"twitter\.com/[^/]+/status/(\d+)", text)
+    # Extract tweet ID (supports twitter.com and x.com)
+    match = re.search(r"(?:twitter|x)\.com/[^/]+/status/(\d+)", text)
     if not match:
         logger.warning("Could not extract tweet ID from update.")
         return False
@@ -59,12 +59,15 @@ def process_twitter_update(bot, chat_id, text, consumer_key, consumer_secret, ac
     created_time = time.strftime("%B %d, %Y %H:%M:%S")
     
     # Strip tweet links out of the Reddit body if it was just the link
-    twims = ["https://twitter.com", "twitter.com", "http://twitter.com"]
+    twims = [
+        "https://twitter.com", "twitter.com", "http://twitter.com",
+        "https://x.com", "x.com", "http://x.com"
+    ]
     if text.strip().startswith(tuple(twims)):
         blog = ""
     else:
-        blog = re.sub(r"https://twitter\S+", "", text)
-        blog = re.sub(r"https://www.twitter\S+", "", blog)
+        blog = re.sub(r"https://(?:twitter|x)\S+", "", text)
+        blog = re.sub(r"https://www\.(?:twitter|x)\S+", "", blog)
         blog = re.sub(">", "", blog)
         
     caption = (
@@ -198,7 +201,10 @@ def run_bot():
                     logger.info(f"New live update: {live_update.body}")
                     bot.start()
                     
-                    twims = ["https://twitter.com", "twitter.com", "http://twitter.com"]
+                    twims = [
+                        "https://twitter.com", "twitter.com", "http://twitter.com",
+                        "https://x.com", "x.com", "http://x.com"
+                    ]
                     contains_twitter = any(twim in live_update.body for twim in twims)
                     
                     if contains_twitter:
