@@ -1,4 +1,4 @@
-# redditlivetg
+# reddit-live-to-telegram
 
 A Python bot that streams a **Reddit live thread** and mirrors its updates to a
 **Telegram chat/channel**. When an update contains a Twitter/X link, it fetches
