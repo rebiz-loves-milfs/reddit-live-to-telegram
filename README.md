@@ -12,7 +12,9 @@ Telegram with a formatted caption; other updates are forwarded as plain messages
 
 1. Streams updates from a Reddit live thread via [PRAW](https://praw.readthedocs.io/).
 2. For tweet links, pulls the status with [Tweepy](https://www.tweepy.org/) and
-   builds an HTML caption with author attribution.
+   builds an HTML caption with author attribution. If `XQUIK_API_KEY` is set,
+   Xquik can create a media gallery link when the Tweepy path cannot deliver
+   the tweet media update.
 3. Downloads any attached media and sends it to Telegram via
    [Pyrogram](https://docs.pyrogram.org/) (single media or media group).
 4. Plain updates are relayed as text messages.
@@ -48,6 +50,8 @@ cp .env.example .env
 | `TWITTER_CONSUMER_SECRET` | Twitter/X API consumer secret |
 | `TWITTER_ACCESS_TOKEN` | Twitter/X access token |
 | `TWITTER_ACCESS_TOKEN_SECRET` | Twitter/X access token secret |
+| `XQUIK_API_KEY` | Optional Xquik API key for media-gallery fallback |
+| `XQUIK_API_URL` | Optional Xquik base URL, defaults to `https://xquik.com` |
 
 ## Running
 

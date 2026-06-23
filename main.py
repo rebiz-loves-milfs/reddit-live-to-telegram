@@ -1,9 +1,11 @@
 from datetime import datetime
+import json
 import logging
 import os
 import random
 import re
 import time
+from urllib import error, request
 from dotenv import load_dotenv
 from pyrogram import Client
 from pyrogram.types import InputMediaPhoto, InputMediaVideo
@@ -22,10 +24,80 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
+DEFAULT_XQUIK_API_URL = "https://xquik.com"
+
 def list_to_string(s):
     return " ".join(s)
 
-def process_twitter_update(bot, chat_id, text, consumer_key, consumer_secret, access_token, access_token_secret):
+def normalize_xquik_api_url(api_url):
+    return (api_url or DEFAULT_XQUIK_API_URL).rstrip("/")
+
+def request_xquik_media_gallery(tweet_id, api_key, api_url):
+    if not api_key:
+        return None
+
+    endpoint = f"{normalize_xquik_api_url(api_url)}/api/v1/x/media/download"
+    payload = json.dumps({"tweetInput": tweet_id}).encode("utf-8")
+    req = request.Request(
+        endpoint,
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "x-api-key": api_key,
+        },
+        method="POST",
+    )
+
+    try:
+        with request.urlopen(req, timeout=30) as response:
+            body = response.read().decode("utf-8")
+    except error.HTTPError as http_err:
+        body = http_err.read().decode("utf-8", errors="replace")
+        logger.warning(f"Xquik media gallery request failed with HTTP {http_err.code}: {body[:200]}")
+        return None
+    except (error.URLError, TimeoutError, json.JSONDecodeError) as gallery_err:
+        logger.warning(f"Xquik media gallery request failed: {gallery_err}")
+        return None
+
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError as parse_err:
+        logger.warning(f"Xquik media gallery response was not valid JSON: {parse_err}")
+        return None
+
+    gallery_url = data.get("galleryUrl")
+    if isinstance(gallery_url, str) and gallery_url:
+        return gallery_url
+
+    logger.warning("Xquik media gallery response did not include galleryUrl.")
+    return None
+
+def strip_twitter_links(text):
+    text = re.sub(r"https://(?:twitter|x)\S+", "", text)
+    text = re.sub(r"https://www\.(?:twitter|x)\S+", "", text)
+    return re.sub(">", "", text).strip()
+
+def send_xquik_gallery_fallback(bot, chat_id, tweet_id, text, api_key, api_url):
+    gallery_url = request_xquik_media_gallery(tweet_id, api_key, api_url)
+    if not gallery_url:
+        return False
+
+    prefix = strip_twitter_links(text)
+    message = f"{prefix}\n\nMedia gallery: {gallery_url}".strip()
+    bot.send_message(chat_id, message, disable_web_page_preview=False)
+    return True
+
+def process_twitter_update(
+    bot,
+    chat_id,
+    text,
+    consumer_key,
+    consumer_secret,
+    access_token,
+    access_token_secret,
+    xquik_api_key=None,
+    xquik_api_url=DEFAULT_XQUIK_API_URL,
+):
     """Processes an update containing a Twitter link, fetches media, and posts to Telegram."""
     logger.info("Processing Twitter update...")
     
@@ -47,6 +119,8 @@ def process_twitter_update(bot, chat_id, text, consumer_key, consumer_secret, ac
         status = api.get_status(tweet_id, tweet_mode="extended")
     except Exception as e:
         logger.error(f"Failed to fetch tweet status from Twitter API: {e}")
+        if send_xquik_gallery_fallback(bot, chat_id, tweet_id, text, xquik_api_key, xquik_api_url):
+            return True
         return False
 
     # Format text with user mention HTML links
@@ -66,13 +140,11 @@ def process_twitter_update(bot, chat_id, text, consumer_key, consumer_secret, ac
     if text.strip().startswith(tuple(twims)):
         blog = ""
     else:
-        blog = re.sub(r"https://(?:twitter|x)\S+", "", text)
-        blog = re.sub(r"https://www\.(?:twitter|x)\S+", "", blog)
-        blog = re.sub(">", "", blog)
+        blog = strip_twitter_links(text)
         
     caption = (
         f"{blog.strip()}\n{tgml}\n\n"
-        f"— <i>{status.author.name} (<a href='https://twitter.com/{status.author.screen_name}'>@{status.author.screen_name}</a>), "
+        f"- <i>{status.author.name} (<a href='https://twitter.com/{status.author.screen_name}'>@{status.author.screen_name}</a>), "
         f"<a href='https://twitter.com/{status.author.screen_name}/status/{tweet_id}'>{created_time}</a></i>"
     )
 
@@ -149,6 +221,8 @@ def process_twitter_update(bot, chat_id, text, consumer_key, consumer_secret, ac
 
     except Exception as e:
         logger.error(f"Error sending media to Telegram: {e}")
+        if send_xquik_gallery_fallback(bot, chat_id, tweet_id, text, xquik_api_key, xquik_api_url):
+            return True
         return False
     finally:
         for f in downloads:
@@ -168,6 +242,8 @@ def run_bot():
     consumer_secret = os.environ.get("TWITTER_CONSUMER_SECRET")
     access_token = os.environ.get("TWITTER_ACCESS_TOKEN")
     access_token_secret = os.environ.get("TWITTER_ACCESS_TOKEN_SECRET")
+    xquik_api_key = os.environ.get("XQUIK_API_KEY")
+    xquik_api_url = os.environ.get("XQUIK_API_URL", DEFAULT_XQUIK_API_URL)
     
     client_id = os.environ.get("CLIENT_ID")
     client_secret = os.environ.get("CLIENT_SECRET")
@@ -215,7 +291,9 @@ def run_bot():
                             consumer_key=consumer_key,
                             consumer_secret=consumer_secret,
                             access_token=access_token,
-                            access_token_secret=access_token_secret
+                            access_token_secret=access_token_secret,
+                            xquik_api_key=xquik_api_key,
+                            xquik_api_url=xquik_api_url,
                         )
                         if not success:
                             bot.send_message(chat_id, live_update.body, disable_web_page_preview=True)
